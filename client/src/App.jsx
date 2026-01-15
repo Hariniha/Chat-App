@@ -17,11 +17,15 @@ function App() {
   // Store the current text input value
   const [inputMessage, setInputMessage] = useState('')
   
-  // Store the user's name (set once when joining)
-  const [username, setUsername] = useState('')
+  // Store the user's name (load from localStorage if exists)
+  const [username, setUsername] = useState(() => {
+    return localStorage.getItem('chatUsername') || ''
+  })
   
-  // Track if user has joined the chat (entered their name)
-  const [hasJoined, setHasJoined] = useState(false)
+  // Track if user has joined the chat (load from localStorage if exists)
+  const [hasJoined, setHasJoined] = useState(() => {
+    return localStorage.getItem('chatHasJoined') === 'true'
+  })
   
   // Track WebSocket connection status: 'disconnected', 'connecting', 'connected'
   const [connectionStatus, setConnectionStatus] = useState('disconnected')
@@ -73,6 +77,7 @@ function App() {
       try {
         // Parse the JSON string back into an object
         const messageData = JSON.parse(event.data)
+        console.log('📦 Parsed message data:', messageData)
 
         // Check if this is a system message (like "Connected to chat server!")
         if (messageData.type === 'system') {
@@ -84,17 +89,26 @@ function App() {
             isMine: false,
             isSystem: true
           }])
-        } else {
+        } else if (messageData.type === 'register') {
+          // Ignore register messages - these are internal
+          console.log('👤 User registered:', messageData.username)
+        } else if (messageData.user && messageData.message) {
           // Regular user message
           // Determine if this message is from us (to show on right side)
           const isMine = messageData.user === username
 
           // Add the new message to our messages array
           // We use functional update to ensure we have the latest state
-          setMessages(prev => [...prev, {
-            ...messageData,
-            isMine // Mark if it's our message for styling
-          }])
+          setMessages(prev => {
+            const newMessages = [...prev, {
+              ...messageData,
+              isMine // Mark if it's our message for styling
+            }]
+            console.log('💬 Updated messages:', newMessages)
+            return newMessages
+          })
+        } else {
+          console.warn('⚠️ Unknown message format:', messageData)
         }
       } catch (error) {
         console.error('❌ Error parsing message:', error)
@@ -157,6 +171,7 @@ function App() {
 
     // Create the message object
     const messageData = {
+      type: 'message',
       user: username,
       message: inputMessage.trim(),
       timestamp: new Date().toISOString()
@@ -178,7 +193,25 @@ function App() {
   // Called when user enters their name and clicks Join
   const joinChat = () => {
     if (username.trim()) {
+      // Save to localStorage so it persists across page refreshes
+      localStorage.setItem('chatUsername', username.trim())
+      localStorage.setItem('chatHasJoined', 'true')
       setHasJoined(true)
+    }
+  }
+
+  // =========================================================================
+  // LOGOUT FUNCTION
+  // =========================================================================
+  // Allow user to logout and change their name
+  const logout = () => {
+    localStorage.removeItem('chatUsername')
+    localStorage.removeItem('chatHasJoined')
+    setHasJoined(false)
+    setUsername('')
+    setMessages([])
+    if (ws.current) {
+      ws.current.close()
     }
   }
 
@@ -259,8 +292,17 @@ function App() {
               </p>
             </div>
           </div>
-          <div className="text-sm text-green-100">
-            {username}
+          <div className="flex items-center space-x-4">
+            <span className="text-sm text-green-100">
+              {username}
+            </span>
+            <button
+              onClick={logout}
+              className="text-xs bg-green-700 hover:bg-green-800 px-3 py-1 rounded transition-colors"
+              title="Logout and change name"
+            >
+              Logout
+            </button>
           </div>
         </div>
       </div>

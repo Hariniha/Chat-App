@@ -3,6 +3,9 @@ node_modules
 /.pnp
 .pnp.js
 
+# Data files
+messages.json
+
 # Logs
 logs
 *.log

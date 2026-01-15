@@ -1,11 +1,16 @@
 // =============================================================================
-// MINIMAL WHATSAPP-STYLE WEBSOCKET SERVER
+// MINIMAL WHATSAPP-STYLE WEBSOCKET SERVER WITH FILE PERSISTENCE
 // =============================================================================
 // This server handles real-time bidirectional messaging between multiple clients
+// AND saves messages to a JSON file for persistence
 
-// STEP 1: Import the WebSocket library
+// STEP 1: Import required libraries
 // 'ws' is a popular, lightweight WebSocket implementation for Node.js
 const WebSocket = require('ws');
+// 'fs' is Node.js built-in file system module for reading/writing files
+const fs = require('fs');
+// 'path' helps us work with file paths correctly across different OS
+const path = require('path');
 
 // STEP 2: Create a WebSocket server on port 8080
 // This creates a server that listens for WebSocket connections
@@ -17,10 +22,56 @@ const server = new WebSocket.Server({ port: 8080 });
 // Like a group chat - we need to know who's in the room
 const clients = new Set();
 
+// =============================================================================
+// STEP 4: FILE PERSISTENCE SETUP
+// =============================================================================
+
+// Define where we'll store messages (in the same folder as server.js)
+const MESSAGES_FILE = path.join(__dirname, 'messages.json');
+
+// In-memory storage for all messages
+// This array holds all chat messages and gets saved to file
+let messageHistory = [];
+
+// Function to load messages from file when server starts
+function loadMessages() {
+  try {
+    // Check if the file exists
+    if (fs.existsSync(MESSAGES_FILE)) {
+      // Read the file content
+      const data = fs.readFileSync(MESSAGES_FILE, 'utf8');
+      // Parse JSON string into JavaScript array
+      messageHistory = JSON.parse(data);
+      console.log(`📂 Loaded ${messageHistory.length} messages from file`);
+    } else {
+      console.log('📂 No message history file found, starting fresh');
+    }
+  } catch (error) {
+    console.error('❌ Error loading messages:', error.message);
+    messageHistory = []; // Start fresh if there's an error
+  }
+}
+
+// Function to save messages to file
+function saveMessages() {
+  try {
+    // Convert JavaScript array to JSON string (pretty printed)
+    const data = JSON.stringify(messageHistory, null, 2);
+    // Write to file
+    fs.writeFileSync(MESSAGES_FILE, data, 'utf8');
+    console.log(`💾 Saved ${messageHistory.length} messages to file`);
+  } catch (error) {
+    console.error('❌ Error saving messages:', error.message);
+  }
+}
+
+// Load existing messages when server starts
+loadMessages();
+
 console.log('🚀 WebSocket server started on ws://localhost:8080');
 
 // =============================================================================
-// STEP 4: Handle new client connections
+// STEP 5: Handle new client connections
 // =============================================================================
 // This event fires whenever a new client connects to the server
 // 'ws' represents the WebSocket connection to that specific client
@@ -40,7 +91,28 @@ server.on('connection', (ws) => {
   }));
 
   // =========================================================================
-  // STEP 5: Handle incoming messages from this client
+  // STEP 6: SEND MESSAGE HISTORY TO NEW CLIENT
+  // =========================================================================
+  // When a new user joins, send them all previous messages
+  // This is how they can see the conversation history!
+  if (messageHistory.length > 0) {
+    console.log(`📤 Sending ${messageHistory.length} historical messages to new client`);
+    
+    // Send a system message first
+    ws.send(JSON.stringify({
+      type: 'system',
+      message: `Loading ${messageHistory.length} previous messages...`,
+      timestamp: new Date().toISOString()
+    }));
+
+    // Send each historical message to the new client
+    messageHistory.forEach((msg) => {
+      ws.send(JSON.stringify(msg));
+    });
+  }
+
+  // =========================================================================
+  // STEP 7: Handle incoming messages from this client
   // =========================================================================
   // This event fires whenever THIS specific client sends a message
   ws.on('message', (data) => {
@@ -57,7 +129,22 @@ server.on('connection', (ws) => {
       messageData.timestamp = new Date().toISOString();
       
       // =====================================================================
-      // STEP 6: Broadcast the message to ALL connected clients
+      // STEP 8: SAVE MESSAGE TO FILE (PERSISTENCE!)
+      // =====================================================================
+      // Only save actual chat messages, not system or register messages
+      if (messageData.type === 'message' && messageData.user && messageData.message) {
+        // Add to our in-memory array
+        messageHistory.push(messageData);
+        
+        // Save to file immediately
+        // In production, you'd batch this or use a database for better performance
+        saveMessages();
+        
+        console.log(`💾 Message saved! Total messages: ${messageHistory.length}`);
+      }
+      
+      // =====================================================================
+      // STEP 9: Broadcast the message to ALL connected clients
       // =====================================================================
       // This is the key to real-time chat!
       // We loop through all connected clients and send them the message
@@ -83,7 +170,7 @@ server.on('connection', (ws) => {
   });
 
   // =========================================================================
-  // STEP 7: Handle client disconnection
+  // STEP 10: Handle client disconnection
   // =========================================================================
   // This fires when a client closes their connection
   // Could be from closing the browser, losing internet, or intentional disconnect
@@ -97,7 +184,7 @@ server.on('connection', (ws) => {
   });
 
   // =========================================================================
-  // STEP 8: Handle connection errors
+  // STEP 11: Handle connection errors
   // =========================================================================
   // Network issues, protocol violations, etc.
   ws.on('error', (error) => {
